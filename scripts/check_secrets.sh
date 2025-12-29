@@ -5,17 +5,23 @@ set -e
 
 echo "🔍 Checking for secrets in staged files..."
 
-# Patterns to detect secrets
+# Patterns to detect actual secret values (not variable names)
 PATTERNS=(
-    "META_ACCESS_TOKEN"                    # Meta/WhatsApp access token
-    "META_WABA_PHONE_NUMBER_ID"            # WhatsApp Business Account ID
-    "WHATSAPP_VERIFY_TOKEN"                # WhatsApp webhook verify token
     "eyJ[A-Za-z0-9_-]{100,}"               # JWT tokens (Supabase service role keys)
     "sbp_[a-zA-Z0-9]{32,}"                 # Supabase project tokens
-    "AIRTABLE_API_KEY"                     # Airtable API key
-    "AIRTABLE_BASE_ID"                     # Airtable base ID
-    "sk_live_[a-zA-Z0-9]{24,}"             # Stripe live key (if used)
-    "sk_test_[a-zA-Z0-9]{24,}"             # Stripe test key (if used)
+    "sk_live_[a-zA-Z0-9]{24,}"             # Stripe live key
+    "sk_test_[a-zA-Z0-9]{24,}"             # Stripe test key
+    "EAA[a-zA-Z0-9]{100,}"                 # Meta access tokens (start with EAA)
+    "pat_[a-zA-Z0-9]{40,}"                  # Airtable personal access tokens
+)
+
+# Patterns for secret assignments (KEY=value or KEY: value)
+SECRET_ASSIGNMENT_PATTERNS=(
+    "META_ACCESS_TOKEN\\s*[=:][^\\s]*[A-Za-z0-9]{20,}"  # Meta access token assignment
+    "META_WABA_PHONE_NUMBER_ID\\s*[=:][^\\s]*[0-9]{10,}" # WhatsApp phone number ID
+    "WHATSAPP_VERIFY_TOKEN\\s*[=:][^\\s]*[A-Za-z0-9]{10,}" # Verify token assignment
+    "AIRTABLE_API_KEY\\s*[=:][^\\s]*[A-Za-z0-9]{20,}"    # Airtable API key assignment
+    "AIRTABLE_BASE_ID\\s*[=:][^\\s]*[A-Za-z0-9]{10,}"   # Airtable base ID assignment
 )
 
 # Get staged files
@@ -29,14 +35,24 @@ fi
 FOUND_SECRETS=false
 
 for file in $STAGED_FILES; do
-    # Skip .env files (they're gitignored anyway)
-    if [[ "$file" == *".env"* ]] || [[ "$file" == *".gitignore"* ]]; then
+    # Skip .env files and the check_secrets.sh script itself
+    if [[ "$file" == *".env"* ]] || [[ "$file" == *".gitignore"* ]] || [[ "$file" == *"check_secrets.sh"* ]]; then
         continue
     fi
     
+    # Check for actual secret values
     for pattern in "${PATTERNS[@]}"; do
         if git diff --cached "$file" | grep -qiE "$pattern"; then
             echo "❌ SECRET DETECTED in $file:"
+            echo "   Pattern: $pattern"
+            FOUND_SECRETS=true
+        fi
+    done
+    
+    # Check for secret assignments (KEY=value)
+    for pattern in "${SECRET_ASSIGNMENT_PATTERNS[@]}"; do
+        if git diff --cached "$file" | grep -qiE "$pattern"; then
+            echo "❌ SECRET ASSIGNMENT DETECTED in $file:"
             echo "   Pattern: $pattern"
             FOUND_SECRETS=true
         fi
